@@ -1,0 +1,6 @@
+apiVersion: v2
+name: previewer
+description: Attachment previews and thumbnails service for Nova Mail
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

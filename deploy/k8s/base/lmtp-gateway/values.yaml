@@ -1,0 +1,78 @@
+replicaCount: 3
+
+image:
+  repository: nova-mail/lmtp-gateway
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+service:
+  type: LoadBalancer
+  port: 24
+  targetPort: 24
+  annotations:
+    # Uncomment and configure for your cloud provider
+    # cloud.google.com/load-balancer-type: "Internal"
+    # service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    # service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+
+ingress:
+  enabled: false
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+env:
+  - name: LMTP_PORT
+    value: "24"
+  - name: DATABASE_URL
+    valueFrom:
+      secretKeyRef:
+        name: nova-mail-secrets
+        key: database-url
+  - name: REDIS_URL
+    valueFrom:
+      secretKeyRef:
+        name: nova-mail-secrets
+        key: redis-url
+  - name: OTLP_ENDPOINT
+    value: "http://otel-collector:4317"
+  - name: RUST_LOG
+    value: "info,lmtp_gateway=debug"
+  - name: MAX_MESSAGE_SIZE
+    value: "52428800"
+
+livenessProbe:
+  tcpSocket:
+    port: 24
+  initialDelaySeconds: 10
+  periodSeconds: 10
+
+readinessProbe:
+  tcpSocket:
+    port: 24
+  initialDelaySeconds: 5
+  periodSeconds: 5
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true

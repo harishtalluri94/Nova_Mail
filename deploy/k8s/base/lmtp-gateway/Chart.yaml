@@ -1,0 +1,6 @@
+apiVersion: v2
+name: lmtp-gateway
+description: LMTP receiver service for Nova Mail
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

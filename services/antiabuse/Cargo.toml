@@ -1,24 +1,20 @@
 [package]
-name = "nova-lmtp-gateway"
+name = "nova-antiabuse"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 
 [[bin]]
-name = "lmtp-gateway"
+name = "antiabuse"
 path = "src/main.rs"
 
 [dependencies]
 nova-common = { path = "../../libs/common" }
-nova-mime-tools = { path = "../../libs/mime-tools" }
 tokio = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true, features = ["trace"] }
 sqlx = { workspace = true }
 redis = { workspace = true }
-aws-sdk-s3 = { workspace = true }
-aws-config = { workspace = true }
-mail-parser = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
@@ -26,6 +22,7 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
-zstd = { workspace = true }
-blake3 = { workspace = true }
-hex = "0.4"
+reqwest = { version = "0.11", features = ["json"] }
+governor = "0.6"
+ipnetwork = "0.20"
+maxminddb = "0.24"

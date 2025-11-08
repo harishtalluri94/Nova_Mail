@@ -1,0 +1,306 @@
+openapi: 3.0.3
+info:
+  title: Nova Mail AntiAbuse API
+  description: |
+    Rate limiting, reputation checking, and anomaly detection service.
+    Protects against spam, abuse, and fraudulent activity.
+  version: 0.1.0
+
+servers:
+  - url: https://api.nova-mail.com/antiabuse/v1
+    description: Production (internal only)
+  - url: http://localhost:8085/api/v1
+    description: Local development
+
+tags:
+  - name: Checks
+    description: Real-time abuse checks
+  - name: Lists
+    description: Blocklist and allowlist management
+  - name: Reporting
+    description: Abuse reporting
+
+paths:
+  /check/rate_limit:
+    post:
+      summary: Check rate limit
+      tags: [Checks]
+      description: Check if a user or IP should be rate limited
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                user_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                ip_address:
+                  type: string
+                  nullable: true
+                  example: "192.0.2.1"
+                action:
+                  type: string
+                  enum: [send_email, signup, login, login_failed, api_call]
+                  example: "send_email"
+      responses:
+        '200':
+          description: Rate limit check result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  allowed:
+                    type: boolean
+                  limit:
+                    type: integer
+                    description: Maximum allowed requests
+                  remaining:
+                    type: integer
+                    description: Remaining requests in window
+                  reset_at:
+                    type: integer
+                    format: int64
+                    description: Unix timestamp when limit resets
+
+  /check/reputation:
+    post:
+      summary: Check reputation
+      tags: [Checks]
+      description: Check reputation of IP, domain, or email address
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ip_address:
+                  type: string
+                  nullable: true
+                domain:
+                  type: string
+                  nullable: true
+                email:
+                  type: string
+                  format: email
+                  nullable: true
+      responses:
+        '200':
+          description: Reputation check result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  score:
+                    type: number
+                    format: float
+                    minimum: 0
+                    maximum: 1
+                    description: Reputation score (0=bad, 1=good)
+                  blocklisted:
+                    type: boolean
+                  allowlisted:
+                    type: boolean
+                  reasons:
+                    type: array
+                    items:
+                      type: string
+                    example: ["IP is in known spam network", "Domain recently created"]
+
+  /check/anomaly:
+    post:
+      summary: Check for anomalous behavior
+      tags: [Checks]
+      description: Detect unusual patterns in user behavior
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, event_type, metadata]
+              properties:
+                user_id:
+                  type: string
+                  format: uuid
+                event_type:
+                  type: string
+                  enum: [send_email, login, api_call]
+                metadata:
+                  type: object
+                  description: Event-specific metadata
+                  properties:
+                    ip:
+                      type: string
+                    country:
+                      type: string
+                    user_agent:
+                      type: string
+                    recipient:
+                      type: string
+                    size_bytes:
+                      type: integer
+                    recipient_count:
+                      type: integer
+      responses:
+        '200':
+          description: Anomaly detection result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  is_anomalous:
+                    type: boolean
+                  confidence:
+                    type: number
+                    format: float
+                    description: Confidence in anomaly detection (0-1)
+                  reasons:
+                    type: array
+                    items:
+                      type: string
+                    example: ["Login from new country", "Unusual time of day"]
+
+  /blocklist:
+    post:
+      summary: Add to blocklist
+      tags: [Lists]
+      description: Add an IP, domain, or email to the blocklist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, identifier_type, reason]
+              properties:
+                identifier:
+                  type: string
+                  example: "192.0.2.1"
+                identifier_type:
+                  type: string
+                  enum: [ip, domain, email]
+                reason:
+                  type: string
+                  example: "Spam activity detected"
+                expires_at:
+                  type: string
+                  format: date-time
+                  nullable: true
+                  description: Optional expiration (null = permanent)
+      responses:
+        '201':
+          description: Added to blocklist
+
+  /blocklist/{identifier}:
+    delete:
+      summary: Remove from blocklist
+      tags: [Lists]
+      description: Remove an identifier from the blocklist
+      parameters:
+        - name: identifier
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "192.0.2.1"
+      responses:
+        '204':
+          description: Removed from blocklist
+
+  /allowlist:
+    post:
+      summary: Add to allowlist
+      tags: [Lists]
+      description: Add a trusted IP, domain, or email to the allowlist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, identifier_type, reason]
+              properties:
+                identifier:
+                  type: string
+                identifier_type:
+                  type: string
+                  enum: [ip, domain, email]
+                reason:
+                  type: string
+      responses:
+        '201':
+          description: Added to allowlist
+
+  /allowlist/{identifier}:
+    delete:
+      summary: Remove from allowlist
+      tags: [Lists]
+      parameters:
+        - name: identifier
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Removed from allowlist
+
+  /report:
+    post:
+      summary: Report abuse
+      tags: [Reporting]
+      description: Submit an abuse report
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reporter_email, reported_content, abuse_type, description]
+              properties:
+                reporter_email:
+                  type: string
+                  format: email
+                reported_content:
+                  type: string
+                  description: Content being reported
+                abuse_type:
+                  type: string
+                  enum: [spam, phishing, harassment, malware, other]
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Abuse report submitted
+
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Service is healthy
+
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Internal service token
+
+security:
+  - bearerAuth: []

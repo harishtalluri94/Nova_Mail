@@ -1,0 +1,6 @@
+apiVersion: v2
+name: indexer
+description: Email indexing service (Tantivy-based) for Nova Mail
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

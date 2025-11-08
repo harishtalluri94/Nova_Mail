@@ -1,0 +1,96 @@
+replicaCount: 2
+
+image:
+  repository: nova-mail/ai-assistant
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+  hosts:
+    - host: api.nova-mail.com
+      paths:
+        - path: /ai
+          pathType: Prefix
+  tls:
+    - secretName: ai-assistant-tls
+      hosts:
+        - api.nova-mail.com
+
+resources:
+  limits:
+    cpu: 4000m
+    memory: 8Gi
+  requests:
+    cpu: 1000m
+    memory: 2Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+env:
+  - name: SERVER_PORT
+    value: "8080"
+  - name: DATABASE_URL
+    valueFrom:
+      secretKeyRef:
+        name: nova-mail-secrets
+        key: database-url
+  - name: REDIS_URL
+    valueFrom:
+      secretKeyRef:
+        name: nova-mail-secrets
+        key: redis-url
+  - name: OTLP_ENDPOINT
+    value: "http://otel-collector:4317"
+  - name: RUST_LOG
+    value: "info,ai_assistant=debug"
+  - name: AI_MODEL_PATH
+    value: "/models/mistral-7b-instruct.gguf"
+  - name: MODEL_CONTEXT_SIZE
+    value: "4096"
+  - name: MAX_TOKENS
+    value: "512"
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8080
+  initialDelaySeconds: 20
+  periodSeconds: 5
+  timeoutSeconds: 5
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true

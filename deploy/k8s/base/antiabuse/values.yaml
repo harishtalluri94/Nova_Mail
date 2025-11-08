@@ -1,0 +1,91 @@
+replicaCount: 2
+
+image:
+  repository: nova-mail/antiabuse
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+  hosts:
+    - host: api.nova-mail.com
+      paths:
+        - path: /antiabuse
+          pathType: Prefix
+  tls:
+    - secretName: antiabuse-tls
+      hosts:
+        - api.nova-mail.com
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+env:
+  - name: SERVER_PORT
+    value: "8080"
+  - name: DATABASE_URL
+    valueFrom:
+      secretKeyRef:
+        name: nova-mail-secrets
+        key: database-url
+  - name: REDIS_URL
+    valueFrom:
+      secretKeyRef:
+        name: nova-mail-secrets
+        key: redis-url
+  - name: OTLP_ENDPOINT
+    value: "http://otel-collector:4317"
+  - name: RUST_LOG
+    value: "info,antiabuse=debug"
+  - name: RATE_LIMIT_WINDOW
+    value: "60"
+  - name: MAX_REQUESTS_PER_WINDOW
+    value: "100"
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 5
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true

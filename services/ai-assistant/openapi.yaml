@@ -1,0 +1,247 @@
+openapi: 3.0.3
+info:
+  title: Nova Mail AI Assistant API
+  description: |
+    AI-powered email assistance including composition, rewriting, summarization, and action extraction.
+    Uses a quantized 7-8B parameter LLM for inference.
+  version: 0.1.0
+
+servers:
+  - url: https://api.nova-mail.com/ai/v1
+    description: Production
+  - url: http://localhost:8082/api/v1
+    description: Local development
+
+tags:
+  - name: Composition
+    description: Email composition assistance
+  - name: Analysis
+    description: Email analysis and extraction
+
+paths:
+  /compose:
+    post:
+      summary: Compose email from prompt
+      tags: [Composition]
+      description: Generate email content from a natural language prompt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt]
+              properties:
+                prompt:
+                  type: string
+                  description: Natural language description of the email to write
+                  example: "Write a professional follow-up email to a client about the quarterly review meeting"
+                tone:
+                  type: string
+                  enum: [professional, casual, friendly, formal]
+                  default: professional
+                context:
+                  type: string
+                  description: Additional context or background information
+                  example: "Last meeting was on Jan 15th, discussed Q4 results"
+      responses:
+        '200':
+          description: Email composed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                    description: Generated email body
+                  confidence:
+                    type: number
+                    format: float
+                    description: Confidence score (0-1)
+                    example: 0.85
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /rewrite:
+    post:
+      summary: Rewrite text in different tone
+      tags: [Composition]
+      description: Rewrite existing email text with a different tone while preserving meaning
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content, tone]
+              properties:
+                content:
+                  type: string
+                  description: Original email text to rewrite
+                tone:
+                  type: string
+                  enum: [professional, casual, friendly, formal]
+                instructions:
+                  type: string
+                  description: Additional rewriting instructions
+                  example: "Make it more concise"
+      responses:
+        '200':
+          description: Text rewritten successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rewritten:
+                    type: string
+                    description: Rewritten email text
+
+  /summarize:
+    post:
+      summary: Summarize email thread
+      tags: [Analysis]
+      description: Generate a concise summary of an email thread with key points
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [thread]
+              properties:
+                thread:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/EmailMessage'
+                max_words:
+                  type: integer
+                  default: 100
+                  description: Maximum words in summary
+      responses:
+        '200':
+          description: Thread summarized successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: string
+                    description: Concise thread summary
+                  key_points:
+                    type: array
+                    items:
+                      type: string
+                    description: List of key points (3-5 items)
+
+  /extract_actions:
+    post:
+      summary: Extract action items from email
+      tags: [Analysis]
+      description: Identify tasks, deadlines, and priorities from email content
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                  description: Email content to analyze
+      responses:
+        '200':
+          description: Actions extracted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  actions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Action'
+
+  /healthz:
+    get:
+      summary: Liveness check
+      responses:
+        '200':
+          description: Service is alive
+
+  /readyz:
+    get:
+      summary: Readiness check
+      responses:
+        '200':
+          description: Service is ready to handle requests
+
+components:
+  schemas:
+    EmailMessage:
+      type: object
+      required: [from, subject, body, timestamp]
+      properties:
+        from:
+          type: string
+          format: email
+        subject:
+          type: string
+        body:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    Action:
+      type: object
+      properties:
+        action_type:
+          type: string
+          enum: [task, meeting, deadline, follow_up]
+          example: task
+        description:
+          type: string
+          example: "Review and approve the quarterly budget"
+        due_date:
+          type: string
+          format: date
+          nullable: true
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+          example: medium
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: AI model error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - bearerAuth: []

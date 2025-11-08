@@ -1,0 +1,217 @@
+openapi: 3.0.3
+info:
+  title: Nova Mail Link Service API
+  description: |
+    Secure download link generation with expiration, access control, and tracking.
+    Uses HMAC-SHA256 for cryptographically secure links.
+  version: 0.1.0
+
+servers:
+  - url: https://api.nova-mail.com/links/v1
+    description: Production
+  - url: http://localhost:8084/api/v1
+    description: Local development
+
+tags:
+  - name: Links
+    description: Download link management
+
+paths:
+  /links:
+    post:
+      summary: Create download link
+      tags: [Links]
+      description: Generate a secure, time-limited download link for an attachment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blob_id, filename]
+              properties:
+                blob_id:
+                  type: string
+                  description: S3/R2 blob identifier (SHA256/BLAKE3 hash)
+                  example: "abc123def456..."
+                filename:
+                  type: string
+                  example: "document.pdf"
+                content_type:
+                  type: string
+                  default: "application/octet-stream"
+                  example: "application/pdf"
+                expires_in_seconds:
+                  type: integer
+                  default: 3600
+                  description: Link validity duration (max 86400 = 24h)
+                  minimum: 60
+                  maximum: 86400
+                max_downloads:
+                  type: integer
+                  nullable: true
+                  description: Maximum number of downloads (null = unlimited)
+                  example: 5
+                requires_auth:
+                  type: boolean
+                  default: false
+                  description: Whether link requires authentication
+      responses:
+        '201':
+          description: Link created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  link_id:
+                    type: string
+                    format: uuid
+                  url:
+                    type: string
+                    format: uri
+                    example: "https://api.nova-mail.com/links/v1/download/abc123?token=xyz789"
+                  expires_at:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /download/{link_id}:
+    get:
+      summary: Download file via link
+      tags: [Links]
+      description: Download file using a secure link
+      parameters:
+        - name: link_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+          description: HMAC signature token
+      responses:
+        '200':
+          description: File content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: 'attachment; filename="document.pdf"'
+            Content-Type:
+              schema:
+                type: string
+            X-Download-Count:
+              schema:
+                type: integer
+              description: Number of times this link has been used
+        '401':
+          description: Invalid or expired token
+        '404':
+          description: Link not found or revoked
+        '410':
+          description: Link expired or max downloads reached
+
+  /links/{link_id}:
+    get:
+      summary: Get link metadata
+      tags: [Links]
+      description: Get information about a download link
+      parameters:
+        - name: link_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Link metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkMetadata'
+
+    delete:
+      summary: Revoke link
+      tags: [Links]
+      description: Revoke a download link before expiration
+      parameters:
+        - name: link_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Link revoked successfully
+        '404':
+          description: Link not found
+
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Service is healthy
+
+components:
+  schemas:
+    LinkMetadata:
+      type: object
+      properties:
+        link_id:
+          type: string
+          format: uuid
+        blob_id:
+          type: string
+        filename:
+          type: string
+        content_type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        max_downloads:
+          type: integer
+          nullable: true
+        download_count:
+          type: integer
+        revoked:
+          type: boolean
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+security:
+  - bearerAuth: []

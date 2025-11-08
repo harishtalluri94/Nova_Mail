@@ -1,0 +1,79 @@
+replicaCount: 2
+
+image:
+  repository: nova-mail/previewer
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: false
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+env:
+  - name: SERVER_PORT
+    value: "8080"
+  - name: DATABASE_URL
+    valueFrom:
+      secretKeyRef:
+        name: nova-mail-secrets
+        key: database-url
+  - name: REDIS_URL
+    valueFrom:
+      secretKeyRef:
+        name: nova-mail-secrets
+        key: redis-url
+  - name: S3_ENDPOINT
+    value: "https://r2.nova-mail.com"
+  - name: S3_BUCKET
+    value: "nova-mail-blobs"
+  - name: OTLP_ENDPOINT
+    value: "http://otel-collector:4317"
+  - name: RUST_LOG
+    value: "info,previewer=debug"
+  - name: PREVIEW_CACHE_DIR
+    value: "/tmp/preview-cache"
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 15
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 5
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false

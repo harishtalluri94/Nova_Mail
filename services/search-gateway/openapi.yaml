@@ -1,0 +1,178 @@
+openapi: 3.0.3
+info:
+  title: Nova Mail Search API
+  description: |
+    Full-text search API powered by Tantivy.
+    Supports complex queries with filters, facets, and ranking.
+  version: 0.1.0
+
+servers:
+  - url: https://api.nova-mail.com/search/v1
+    description: Production
+  - url: http://localhost:8083/api/v1
+    description: Local development
+
+tags:
+  - name: Search
+    description: Email search operations
+
+paths:
+  /search:
+    post:
+      summary: Search emails
+      tags: [Search]
+      description: |
+        Search emails using full-text search with Tantivy.
+        Supports field queries, phrase queries, and boolean operators.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+                  description: Search query
+                  example: "from:alice@example.com subject:invoice"
+                limit:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+                  default: 20
+                offset:
+                  type: integer
+                  minimum: 0
+                  default: 0
+                filters:
+                  type: object
+                  properties:
+                    mailbox_id:
+                      type: string
+                      format: uuid
+                    has_attachment:
+                      type: boolean
+                    date_from:
+                      type: string
+                      format: date-time
+                    date_to:
+                      type: string
+                      format: date-time
+                sort:
+                  type: string
+                  enum: [relevance, date_desc, date_asc]
+                  default: relevance
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hits:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SearchHit'
+                  total:
+                    type: integer
+                    description: Total number of matching documents
+                  took_ms:
+                    type: integer
+                    description: Query execution time in milliseconds
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /suggest:
+    post:
+      summary: Get search suggestions
+      tags: [Search]
+      description: Get autocomplete suggestions for search queries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prefix]
+              properties:
+                prefix:
+                  type: string
+                  minLength: 2
+                  example: "proj"
+                limit:
+                  type: integer
+                  default: 5
+                  maximum: 20
+      responses:
+        '200':
+          description: Suggestions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  suggestions:
+                    type: array
+                    items:
+                      type: string
+                    example: ["project", "projection", "projector"]
+
+  /healthz:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Service is healthy
+
+components:
+  schemas:
+    SearchHit:
+      type: object
+      properties:
+        message_id:
+          type: string
+          format: uuid
+        score:
+          type: number
+          format: float
+          description: Relevance score
+        subject:
+          type: string
+        from:
+          type: string
+        to:
+          type: array
+          items:
+            type: string
+        received_at:
+          type: string
+          format: date-time
+        has_attachments:
+          type: boolean
+        preview:
+          type: string
+          description: Text snippet with highlighted matches
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid query
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+security:
+  - bearerAuth: []
