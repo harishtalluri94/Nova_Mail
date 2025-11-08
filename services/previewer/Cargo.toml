@@ -1,0 +1,46 @@
+[package]
+name = "nova-previewer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "previewer"
+path = "src/main.rs"
+
+[dependencies]
+nova-common = { path = "../../libs/common" }
+
+tokio = { workspace = true }
+axum = { workspace = true }
+
+# Database
+sqlx = { workspace = true }
+redis = { workspace = true }
+
+# Object storage
+aws-sdk-s3 = { workspace = true }
+aws-config = { workspace = true }
+
+# Image processing
+image = { workspace = true }
+webp = { workspace = true }
+
+# PDF processing
+pdf = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Observability
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
+bytes = { workspace = true }
