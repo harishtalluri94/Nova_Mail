@@ -1,0 +1,83 @@
+# Rust
+target/
+Cargo.lock
+*.rs.bk
+*.pdb
+
+# Node.js
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+.turbo/
+.vercel/
+
+# Environment
+.env
+.env.local
+.env.*.local
+*.env
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+terraform.tfvars
+*.tfvars
+
+# Kubernetes
+*.kubeconfig
+
+# Secrets
+*.pem
+*.key
+!*.pub
+secrets/
+*.secret
+
+# Data & Logs
+*.log
+logs/
+data/
+*.db
+*.sqlite
+
+# Temporary
+tmp/
+temp/
+.cache/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Build artifacts
+*.wasm
+*.so
+*.dylib
+*.dll
+
+# Test artifacts
+coverage/
+.nyc_output/
+
+# Local dev
+kind-config.yaml.local
+docker-compose.override.yml
+
+# MinIO data
+minio-data/
+
+# Grafana data
+grafana-data/

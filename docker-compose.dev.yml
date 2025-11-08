@@ -1,0 +1,197 @@
+version: '3.9'
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:15-alpine
+    container_name: nova-postgres
+    environment:
+      POSTGRES_DB: nova_mail
+      POSTGRES_USER: nova
+      POSTGRES_PASSWORD: nova_dev_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./ops/scripts/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nova"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nova-net
+
+  # Redis for caching and job queues
+  redis:
+    image: redis:7-alpine
+    container_name: nova-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - nova-net
+
+  # MinIO object storage (S3-compatible)
+  minio:
+    image: minio/minio:latest
+    container_name: nova-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - nova-net
+
+  # MinIO client - create buckets on startup
+  minio-init:
+    image: minio/mc:latest
+    container_name: nova-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb local/mail-blobs --ignore-existing;
+      /usr/bin/mc mb local/previews --ignore-existing;
+      /usr/bin/mc mb local/exports --ignore-existing;
+      /usr/bin/mc anonymous set download local/previews;
+      exit 0;
+      "
+    networks:
+      - nova-net
+
+  # Rspamd for spam filtering
+  rspamd:
+    image: a16bitsysop/rspamd:latest
+    container_name: nova-rspamd
+    ports:
+      - "11332:11332"  # HTTP API
+      - "11333:11333"  # Controller
+    volumes:
+      - rspamd-data:/var/lib/rspamd
+      - ./servers/edge-mta/rspamd-config:/etc/rspamd/local.d
+    networks:
+      - nova-net
+
+  # ClamAV for antivirus scanning
+  clamav:
+    image: clamav/clamav:latest
+    container_name: nova-clamav
+    ports:
+      - "3310:3310"
+    volumes:
+      - clamav-data:/var/lib/clamav
+    environment:
+      CLAMAV_NO_FRESHCLAMD: "false"
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping", "1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    networks:
+      - nova-net
+
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: nova-otel
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # Prometheus metrics
+      - "13133:13133" # Health check
+    volumes:
+      - ./services/observability/otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    networks:
+      - nova-net
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: nova-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./services/observability/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - nova-net
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: nova-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./services/observability/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./services/observability/grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - nova-net
+
+  # Loki for log aggregation
+  loki:
+    image: grafana/loki:latest
+    container_name: nova-loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki-data:/loki
+    networks:
+      - nova-net
+
+  # Mailhog for email testing (catches outbound emails)
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: nova-mailhog
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    networks:
+      - nova-net
+
+networks:
+  nova-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  rspamd-data:
+  clamav-data:
+  prometheus-data:
+  grafana-data:
+  loki-data:

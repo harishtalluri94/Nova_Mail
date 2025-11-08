@@ -1,0 +1,12 @@
+apiVersion: v2
+name: admin-api
+description: Nova Mail Admin API Helm chart
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - nova-mail
+  - admin
+  - api
+maintainers:
+  - name: Nova Mail Team

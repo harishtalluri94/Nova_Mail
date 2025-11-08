@@ -1,0 +1,27 @@
+[package]
+name = "nova-lmtp-gateway"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "lmtp-gateway"
+path = "src/main.rs"
+
+[dependencies]
+nova-common = { path = "../../libs/common" }
+nova-mime-tools = { path = "../../libs/mime-tools" }
+tokio = { workspace = true }
+axum = { workspace = true }
+sqlx = { workspace = true }
+redis = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+aws-config = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+zstd = { workspace = true }
+blake3 = { workspace = true }
