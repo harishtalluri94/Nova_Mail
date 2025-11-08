@@ -1,0 +1,47 @@
+[package]
+name = "nova-link-service"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "link-service"
+path = "src/main.rs"
+
+[dependencies]
+nova-common = { path = "../../libs/common" }
+
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true, features = ["cors", "trace"] }
+
+# Database
+sqlx = { workspace = true }
+redis = { workspace = true }
+
+# Object storage
+aws-sdk-s3 = { workspace = true }
+aws-config = { workspace = true }
+
+# Crypto
+ring = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Observability
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
+chrono = { workspace = true }
+url = { workspace = true }

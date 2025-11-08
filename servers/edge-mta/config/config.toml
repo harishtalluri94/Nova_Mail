@@ -1,0 +1,124 @@
+# Stalwart Mail Server Configuration for Nova Mail
+# See: https://stalw.art/docs/configuration
+
+[server]
+hostname = "mail.nova-mail.com"
+greeting = "Nova Mail SMTP Server"
+
+[server.listener."smtp"]
+bind = ["0.0.0.0:25"]
+protocol = "smtp"
+tls.implicit = false
+
+[server.listener."submission"]
+bind = ["0.0.0.0:587"]
+protocol = "smtp"
+tls.implicit = false
+tls.required = true
+
+[server.listener."submissions"]
+bind = ["0.0.0.0:465"]
+protocol = "smtp"
+tls.implicit = true
+
+[server.tls]
+certificate = "/etc/letsencrypt/live/mail.nova-mail.com/fullchain.pem"
+private-key = "/etc/letsencrypt/live/mail.nova-mail.com/privkey.pem"
+
+[session.rcpt]
+# Relay configuration
+relay = true
+max-recipients = 100
+
+[session.data]
+max-messages = 100
+max-message-size = 104857600  # 100 MB
+
+[session.extensions]
+# SMTP extensions
+pipelining = true
+chunking = true
+requiretls = true
+dsn = true
+vrfy = false
+expn = false
+
+[queue]
+path = "/var/spool/stalwart/queue"
+hash = 64
+
+[queue.schedule]
+retry = ["2m", "5m", "10m", "15m", "30m", "1h", "2h"]
+notify = ["1d", "3d"]
+expire = "5d"
+
+[queue.outbound]
+# Outbound delivery settings
+ip-strategy = "ipv4_then_ipv6"
+source-ip.v4 = ["auto"]
+source-ip.v6 = ["auto"]
+
+[queue.outbound.limits]
+# Rate limiting for outbound
+mx = 10
+ip = 5
+
+[queue.outbound.tls]
+dane = "optional"
+mta-sts = "optional"
+start-tls = "require"
+
+# DKIM Signing
+[signature."default"]
+algorithm = "rsa-sha256"
+canonicalization = "relaxed/relaxed"
+selector = "s1"
+headers = ["From", "To", "Date", "Subject", "Message-ID"]
+private-key = "%{file:/etc/stalwart/dkim/default.key}%"
+domain = "nova-mail.com"
+
+# Rspamd Integration
+[spam-filter]
+type = "rspamd"
+host = "localhost"
+port = 11332
+
+[spam-filter.lookup]
+action = "allow"
+score-reject = 15.0
+score-spam = 5.0
+score-greylist = 3.0
+
+# LMTP Delivery to Gateway
+[delivery."lmtp-gateway"]
+type = "lmtp"
+host = "lmtp-gateway.nova-mail.svc.cluster.local"
+port = 24
+timeout = "30s"
+max-rcpt = 10
+
+# Logging
+[logging]
+level = "info"
+path = "/var/log/stalwart/mail.log"
+rotate = "daily"
+compress = true
+
+[logging.trace]
+enable = false
+level = "debug"
+
+# Authentication (for submission)
+[auth]
+type = "sql"
+
+[auth.sql]
+type = "postgresql"
+host = "postgres.nova-mail.svc.cluster.local"
+port = 5432
+database = "nova_mail"
+user = "stalwart"
+password = "%{env:DB_PASSWORD}%"
+
+[auth.sql.query]
+name = "SELECT email FROM users WHERE email = $1 AND password_hash = crypt($2, password_hash) AND is_active = true"
