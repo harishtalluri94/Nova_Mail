@@ -93,7 +93,10 @@ async fn process_delivery_job(state: &AppState, job: &DeliveryJob) -> Result<()>
     update_mailbox_counts(state, job.mailbox_id).await?;
 
     // 6. Increment modseq for mailbox state tracking
-    increment_modseq(state, job.mailbox_id).await?;
+    let new_modseq = increment_modseq(state, job.mailbox_id).await?;
+
+    // 7. Track message state change for JMAP delta queries
+    track_message_state_change(state, job.mailbox_id, job.message_id, "created", new_modseq).await?;
 
     tracing::info!("Completed delivery for message {}", job.message_id);
 
@@ -187,12 +190,56 @@ async fn update_mailbox_counts(state: &AppState, mailbox_id: Uuid) -> Result<()>
     Ok(())
 }
 
-async fn increment_modseq(state: &AppState, mailbox_id: Uuid) -> Result<()> {
-    // Increment modification sequence for state tracking (JMAP/IMAP)
-    // This would typically be stored in a separate table
-    // For now, we'll skip this
+async fn increment_modseq(state: &AppState, mailbox_id: Uuid) -> Result<i64> {
+    // Increment modification sequence for JMAP state tracking
+    // This uses the increment_mailbox_modseq function from the database migration
 
-    tracing::debug!("ModSeq increment for mailbox {} (not implemented)", mailbox_id);
+    let new_modseq = sqlx::query_scalar!(
+        "SELECT increment_mailbox_modseq($1)",
+        mailbox_id
+    )
+    .fetch_one(&state.db_pool)
+    .await
+    .context("Failed to increment mailbox modseq")?
+    .unwrap_or(0);
+
+    tracing::debug!(
+        "Incremented modseq for mailbox {} to {}",
+        mailbox_id,
+        new_modseq
+    );
+
+    Ok(new_modseq)
+}
+
+async fn track_message_state_change(
+    state: &AppState,
+    mailbox_id: Uuid,
+    message_id: Uuid,
+    change_type: &str,
+    modseq: i64,
+) -> Result<()> {
+    // Track message state changes for JMAP delta queries
+    // This uses the track_message_change function from the database migration
+
+    sqlx::query!(
+        "SELECT track_message_change($1, $2, $3, $4, $5)",
+        mailbox_id,
+        message_id,
+        change_type,
+        modseq,
+        None::<serde_json::Value> // changed_fields (null for creation)
+    )
+    .execute(&state.db_pool)
+    .await
+    .context("Failed to track message state change")?;
+
+    tracing::debug!(
+        "Tracked {} for message {} with modseq {}",
+        change_type,
+        message_id,
+        modseq
+    );
 
     Ok(())
 }
