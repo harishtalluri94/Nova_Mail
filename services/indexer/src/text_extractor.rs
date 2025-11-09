@@ -1,5 +1,5 @@
 use anyhow::Result;
-use mail_parser::{Message, MessageParser};
+use mail_parser::{Message, MessageParser, MimeHeaders};
 
 pub struct ExtractedContent {
     pub subject: String,
@@ -33,11 +33,12 @@ pub fn extract_content(raw_email: &[u8]) -> Result<ExtractedContent> {
     let cc_addrs = extract_cc_addresses(&message);
 
     let body_text = message
-        .text_body(0)
+        .text_body
+        .first()
         .map(|b| b.to_string())
         .unwrap_or_default();
 
-    let body_html = message.html_body(0).map(|b| b.to_string());
+    let body_html = message.html_body.first().map(|b| b.to_string());
 
     let attachments = extract_attachments(&message);
 
@@ -97,7 +98,7 @@ fn extract_attachments(message: &Message) -> Vec<AttachmentInfo> {
 
             let content_type = attachment
                 .content_type()
-                .and_then(|ct| ct.ctype())
+                .map(|ct| ct.ctype())
                 .unwrap_or("application/octet-stream")
                 .to_string();
 

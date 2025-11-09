@@ -43,7 +43,11 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Start background workers
-    for i in 0..num_cpus::get() {
+    let num_workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+
+    for i in 0..num_workers {
         let worker_state = state.clone();
         tokio::spawn(async move {
             tracing::info!("Starting worker thread {}", i);

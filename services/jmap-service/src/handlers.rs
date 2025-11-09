@@ -124,82 +124,79 @@ async fn handle_email_query(
             let mailbox_uuid = Uuid::parse_str(mailbox_id)
                 .map_err(|_| JmapError::InvalidArguments("Invalid mailbox ID".to_string()))?;
 
-            let emails = sqlx::query!(
+            let emails = sqlx::query_as::<_, (Uuid,)>(
                 r#"
                 SELECT m.id
                 FROM messages m
                 WHERE m.mailbox_id = $1
                 ORDER BY m.received_at DESC
                 LIMIT $2 OFFSET $3
-                "#,
-                mailbox_uuid,
-                limit,
-                position
+                "#
             )
+            .bind(mailbox_uuid)
+            .bind(limit)
+            .bind(position)
             .fetch_all(&state.db_pool)
             .await
             .map_err(|e| JmapError::Database(e.to_string()))?;
 
-            let total = sqlx::query_scalar!(
-                "SELECT COUNT(*) FROM messages WHERE mailbox_id = $1",
-                mailbox_uuid
+            let total = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM messages WHERE mailbox_id = $1"
             )
+            .bind(mailbox_uuid)
             .fetch_one(&state.db_pool)
             .await
-            .map_err(|e| JmapError::Database(e.to_string()))?
-            .unwrap_or(0);
+            .map_err(|e| JmapError::Database(e.to_string()))?;
 
             (emails, total)
         } else {
             // No specific mailbox filter
-            let emails = sqlx::query!(
+            let emails = sqlx::query_as::<_, (Uuid,)>(
                 r#"
                 SELECT m.id
                 FROM messages m
                 ORDER BY m.received_at DESC
                 LIMIT $1 OFFSET $2
-                "#,
-                limit,
-                position
+                "#
             )
+            .bind(limit)
+            .bind(position)
             .fetch_all(&state.db_pool)
             .await
             .map_err(|e| JmapError::Database(e.to_string()))?;
 
-            let total = sqlx::query_scalar!("SELECT COUNT(*) FROM messages")
+            let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM messages")
                 .fetch_one(&state.db_pool)
                 .await
-                .map_err(|e| JmapError::Database(e.to_string()))?
-                .unwrap_or(0);
+                .map_err(|e| JmapError::Database(e.to_string()))?;
 
             (emails, total)
         }
     } else {
         // No filter, return all emails
-        let emails = sqlx::query!(
+        let emails = sqlx::query_as::<_, (Uuid,)>(
             r#"
             SELECT m.id
             FROM messages m
             ORDER BY m.received_at DESC
             LIMIT $1 OFFSET $2
-            "#,
-            limit,
-            position
+            "#
         )
+        .bind(limit)
+        .bind(position)
         .fetch_all(&state.db_pool)
         .await
         .map_err(|e| JmapError::Database(e.to_string()))?;
 
-        let total = sqlx::query_scalar!("SELECT COUNT(*) FROM messages")
+        let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM messages")
             .fetch_one(&state.db_pool)
             .await
-            .map_err(|e| JmapError::Database(e.to_string()))?
-            .unwrap_or(0);
+            .map_err(|e| JmapError::Database(e.to_string()))?;
 
         (emails, total)
     };
 
-    let email_ids: Vec<String> = emails.iter().map(|e| e.id.to_string()).collect();
+    let email_ids: Vec<String> = emails.iter().map(|e| e.0.to_string()).collect();
 
     Ok(MethodResponse {
         method: "Email/query".to_string(),
@@ -264,7 +261,13 @@ async fn handle_email_get(
         };
 
         // Fetch email from database
-        let email_result = sqlx::query!(
+        let email_result = sqlx::query_as::<_, (
+            Uuid, String, Option<Uuid>, Uuid,
+            Option<i64>, chrono::DateTime<chrono::Utc>, Option<String>,
+            Option<String>, Option<String>,
+            Option<String>, Option<bool>,
+            Option<bool>, Option<bool>, Option<bool>, Option<bool>
+        )>(
             r#"
             SELECT
                 m.id, m.blob_id, m.thread_id, m.mailbox_id,
@@ -274,38 +277,42 @@ async fn handle_email_get(
                 m.is_seen, m.is_flagged, m.is_draft, m.is_answered
             FROM messages m
             WHERE m.id = $1
-            "#,
-            id
+            "#
         )
+        .bind(id)
         .fetch_optional(&state.db_pool)
         .await
         .map_err(|e| JmapError::Database(e.to_string()))?;
 
         if let Some(email) = email_result {
+            let (id, blob_id, thread_id, mailbox_id, size, received_at, subject,
+                 from_addr, from_name, to_addrs, has_attachment,
+                 is_seen, is_flagged, is_draft, is_answered) = email;
+
             // Build email object based on requested properties
             let mut email_obj = serde_json::json!({
-                "id": email.id.to_string(),
-                "blobId": email.blob_id,
-                "threadId": email.thread_id.map(|t| t.to_string()).unwrap_or_else(|| email.id.to_string()),
+                "id": id.to_string(),
+                "blobId": blob_id,
+                "threadId": thread_id.map(|t| t.to_string()).unwrap_or_else(|| id.to_string()),
                 "mailboxIds": {
-                    email.mailbox_id.to_string(): true
+                    mailbox_id.to_string(): true
                 },
-                "size": email.size.unwrap_or(0),
-                "receivedAt": email.received_at.to_rfc3339(),
+                "size": size.unwrap_or(0),
+                "receivedAt": received_at.to_rfc3339(),
             });
 
             // Add keywords based on flags
             let mut keywords = serde_json::Map::new();
-            if email.is_seen.unwrap_or(false) {
+            if is_seen.unwrap_or(false) {
                 keywords.insert("$seen".to_string(), serde_json::json!(true));
             }
-            if email.is_flagged.unwrap_or(false) {
+            if is_flagged.unwrap_or(false) {
                 keywords.insert("$flagged".to_string(), serde_json::json!(true));
             }
-            if email.is_draft.unwrap_or(false) {
+            if is_draft.unwrap_or(false) {
                 keywords.insert("$draft".to_string(), serde_json::json!(true));
             }
-            if email.is_answered.unwrap_or(false) {
+            if is_answered.unwrap_or(false) {
                 keywords.insert("$answered".to_string(), serde_json::json!(true));
             }
             email_obj["keywords"] = serde_json::Value::Object(keywords);
@@ -318,17 +325,16 @@ async fn handle_email_get(
                     .unwrap_or(true)
             };
 
-            if should_include("from") && email.from_addr.is_some() {
+            if should_include("from") && from_addr.is_some() {
                 email_obj["from"] = serde_json::json!([{
-                    "name": email.from_name,
-                    "email": email.from_addr
+                    "name": from_name,
+                    "email": from_addr
                 }]);
             }
 
-            if should_include("to") && email.to_addrs.is_some() {
+            if should_include("to") && to_addrs.is_some() {
                 // Parse to_addrs (simplified - assumes comma-separated)
-                let to_list: Vec<serde_json::Value> = email
-                    .to_addrs
+                let to_list: Vec<serde_json::Value> = to_addrs
                     .unwrap()
                     .split(',')
                     .map(|addr| {
@@ -341,11 +347,11 @@ async fn handle_email_get(
             }
 
             if should_include("subject") {
-                email_obj["subject"] = serde_json::json!(email.subject);
+                email_obj["subject"] = serde_json::json!(subject);
             }
 
             if should_include("hasAttachment") {
-                email_obj["hasAttachment"] = serde_json::json!(email.has_attachment.unwrap_or(false));
+                email_obj["hasAttachment"] = serde_json::json!(has_attachment.unwrap_or(false));
             }
 
             // Add preview if requested (requires fetching blob)
@@ -417,19 +423,19 @@ async fn handle_email_set(
                 let is_draft = keywords.contains_key("$draft");
                 let is_answered = keywords.contains_key("$answered");
 
-                sqlx::query!(
+                sqlx::query(
                     r#"
                     UPDATE messages
                     SET is_seen = $1, is_flagged = $2, is_draft = $3, is_answered = $4,
                         updated_at = NOW()
                     WHERE id = $5
-                    "#,
-                    is_seen,
-                    is_flagged,
-                    is_draft,
-                    is_answered,
-                    id
+                    "#
                 )
+                .bind(is_seen)
+                .bind(is_flagged)
+                .bind(is_draft)
+                .bind(is_answered)
+                .bind(id)
                 .execute(&state.db_pool)
                 .await
                 .map_err(|e| JmapError::Database(e.to_string()))?;
@@ -444,15 +450,15 @@ async fn handle_email_set(
                         JmapError::InvalidArguments("Invalid mailbox ID".to_string())
                     })?;
 
-                    sqlx::query!(
+                    sqlx::query(
                         r#"
                         UPDATE messages
                         SET mailbox_id = $1, updated_at = NOW()
                         WHERE id = $2
-                        "#,
-                        mailbox_uuid,
-                        id
+                        "#
                     )
+                    .bind(mailbox_uuid)
+                    .bind(id)
                     .execute(&state.db_pool)
                     .await
                     .map_err(|e| JmapError::Database(e.to_string()))?;
@@ -495,14 +501,14 @@ async fn handle_email_set(
             };
 
             // Soft delete: mark as deleted
-            let result = sqlx::query!(
+            let result = sqlx::query(
                 r#"
                 UPDATE messages
                 SET deleted_at = NOW()
                 WHERE id = $1 AND deleted_at IS NULL
-                "#,
-                id
+                "#
             )
+            .bind(id)
             .execute(&state.db_pool)
             .await
             .map_err(|e| JmapError::Database(e.to_string()))?;
@@ -581,7 +587,11 @@ async fn handle_mailbox_get(
                 }
             };
 
-            let mailbox_result = sqlx::query!(
+            let mailbox_result = sqlx::query_as::<_, (
+                Uuid, String, Option<Uuid>, Option<String>, i32,
+                Option<bool>,
+                Option<i64>, Option<i64>
+            )>(
                 r#"
                 SELECT
                     m.id, m.name, m.parent_id, m.role, m.sort_order,
@@ -592,22 +602,23 @@ async fn handle_mailbox_get(
                 LEFT JOIN messages msg ON msg.mailbox_id = m.id
                 WHERE m.id = $1
                 GROUP BY m.id
-                "#,
-                id
+                "#
             )
+            .bind(id)
             .fetch_optional(&state.db_pool)
             .await
             .map_err(|e| JmapError::Database(e.to_string()))?;
 
             if let Some(mailbox) = mailbox_result {
+                let (mb_id, name, parent_id, role, sort_order, is_subscribed, total_emails, unread_emails) = mailbox;
                 mailboxes.push(serde_json::json!({
-                    "id": mailbox.id.to_string(),
-                    "name": mailbox.name,
-                    "parentId": mailbox.parent_id.map(|p| p.to_string()),
-                    "role": mailbox.role,
-                    "sortOrder": mailbox.sort_order,
-                    "totalEmails": mailbox.total_emails.unwrap_or(0),
-                    "unreadEmails": mailbox.unread_emails.unwrap_or(0),
+                    "id": mb_id.to_string(),
+                    "name": name,
+                    "parentId": parent_id.map(|p| p.to_string()),
+                    "role": role,
+                    "sortOrder": sort_order,
+                    "totalEmails": total_emails.unwrap_or(0),
+                    "unreadEmails": unread_emails.unwrap_or(0),
                     "totalThreads": 0, // TODO: Implement thread counting
                     "unreadThreads": 0,
                     "myRights": {
@@ -618,10 +629,10 @@ async fn handle_mailbox_get(
                         "maySetKeywords": true,
                         "mayCreateChild": true,
                         "mayRename": true,
-                        "mayDelete": mailbox.role.is_none(), // Can't delete system mailboxes
+                        "mayDelete": role.is_none(), // Can't delete system mailboxes
                         "maySubmit": true
                     },
-                    "isSubscribed": mailbox.is_subscribed.unwrap_or(true)
+                    "isSubscribed": is_subscribed.unwrap_or(true)
                 }));
             } else {
                 not_found.push(id_val.clone());
@@ -629,7 +640,11 @@ async fn handle_mailbox_get(
         }
     } else {
         // No IDs specified, return all mailboxes
-        let all_mailboxes = sqlx::query!(
+        let all_mailboxes = sqlx::query_as::<_, (
+            Uuid, String, Option<Uuid>, Option<String>, i32,
+            Option<bool>,
+            Option<i64>, Option<i64>
+        )>(
             r#"
             SELECT
                 m.id, m.name, m.parent_id, m.role, m.sort_order,
@@ -647,14 +662,15 @@ async fn handle_mailbox_get(
         .map_err(|e| JmapError::Database(e.to_string()))?;
 
         for mailbox in all_mailboxes {
+            let (mb_id, name, parent_id, role, sort_order, is_subscribed, total_emails, unread_emails) = mailbox;
             mailboxes.push(serde_json::json!({
-                "id": mailbox.id.to_string(),
-                "name": mailbox.name,
-                "parentId": mailbox.parent_id.map(|p| p.to_string()),
-                "role": mailbox.role,
-                "sortOrder": mailbox.sort_order,
-                "totalEmails": mailbox.total_emails.unwrap_or(0),
-                "unreadEmails": mailbox.unread_emails.unwrap_or(0),
+                "id": mb_id.to_string(),
+                "name": name,
+                "parentId": parent_id.map(|p| p.to_string()),
+                "role": role,
+                "sortOrder": sort_order,
+                "totalEmails": total_emails.unwrap_or(0),
+                "unreadEmails": unread_emails.unwrap_or(0),
                 "totalThreads": 0,
                 "unreadThreads": 0,
                 "myRights": {
@@ -665,10 +681,10 @@ async fn handle_mailbox_get(
                     "maySetKeywords": true,
                     "mayCreateChild": true,
                     "mayRename": true,
-                    "mayDelete": mailbox.role.is_none(),
+                    "mayDelete": role.is_none(),
                     "maySubmit": true
                 },
-                "isSubscribed": mailbox.is_subscribed.unwrap_or(true)
+                "isSubscribed": is_subscribed.unwrap_or(true)
             }));
         }
     }
@@ -759,18 +775,18 @@ async fn handle_mailbox_set(
             // For now, use a placeholder
             let user_id = Uuid::new_v4(); // This should come from auth
 
-            let mailbox_id = sqlx::query_scalar!(
+            let mailbox_id = sqlx::query_scalar::<_, Uuid>(
                 r#"
                 INSERT INTO mailboxes (user_id, name, parent_id, role, sort_order, is_subscribed)
                 VALUES ($1, $2, $3, $4, $5, true)
                 RETURNING id
-                "#,
-                user_id,
-                name,
-                parent_id,
-                role,
-                sort_order
+                "#
             )
+            .bind(user_id)
+            .bind(name)
+            .bind(parent_id)
+            .bind(role)
+            .bind(sort_order)
             .fetch_one(&state.db_pool)
             .await
             .map_err(|e| JmapError::Database(e.to_string()))?;
@@ -811,44 +827,44 @@ async fn handle_mailbox_set(
             let is_subscribed = changes.get("isSubscribed").and_then(|v| v.as_bool());
 
             if let Some(name_val) = name {
-                sqlx::query!(
-                    "UPDATE mailboxes SET name = $1, updated_at = NOW() WHERE id = $2",
-                    name_val,
-                    id
+                sqlx::query(
+                    "UPDATE mailboxes SET name = $1, updated_at = NOW() WHERE id = $2"
                 )
+                .bind(name_val)
+                .bind(id)
                 .execute(&state.db_pool)
                 .await
                 .map_err(|e| JmapError::Database(e.to_string()))?;
             }
 
             if parent_id.is_some() || changes.get("parentId").is_some() {
-                sqlx::query!(
-                    "UPDATE mailboxes SET parent_id = $1, updated_at = NOW() WHERE id = $2",
-                    parent_id,
-                    id
+                sqlx::query(
+                    "UPDATE mailboxes SET parent_id = $1, updated_at = NOW() WHERE id = $2"
                 )
+                .bind(parent_id)
+                .bind(id)
                 .execute(&state.db_pool)
                 .await
                 .map_err(|e| JmapError::Database(e.to_string()))?;
             }
 
             if let Some(sort_val) = sort_order {
-                sqlx::query!(
-                    "UPDATE mailboxes SET sort_order = $1, updated_at = NOW() WHERE id = $2",
-                    sort_val,
-                    id
+                sqlx::query(
+                    "UPDATE mailboxes SET sort_order = $1, updated_at = NOW() WHERE id = $2"
                 )
+                .bind(sort_val)
+                .bind(id)
                 .execute(&state.db_pool)
                 .await
                 .map_err(|e| JmapError::Database(e.to_string()))?;
             }
 
             if let Some(subscribed_val) = is_subscribed {
-                sqlx::query!(
-                    "UPDATE mailboxes SET is_subscribed = $1, updated_at = NOW() WHERE id = $2",
-                    subscribed_val,
-                    id
+                sqlx::query(
+                    "UPDATE mailboxes SET is_subscribed = $1, updated_at = NOW() WHERE id = $2"
                 )
+                .bind(subscribed_val)
+                .bind(id)
                 .execute(&state.db_pool)
                 .await
                 .map_err(|e| JmapError::Database(e.to_string()))?;
@@ -890,13 +906,16 @@ async fn handle_mailbox_set(
             };
 
             // Check if mailbox is a system mailbox (has a role)
-            let mailbox = sqlx::query!("SELECT role FROM mailboxes WHERE id = $1", id)
-                .fetch_optional(&state.db_pool)
-                .await
-                .map_err(|e| JmapError::Database(e.to_string()))?;
+            let mailbox = sqlx::query_as::<_, (Option<String>,)>(
+                "SELECT role FROM mailboxes WHERE id = $1"
+            )
+            .bind(id)
+            .fetch_optional(&state.db_pool)
+            .await
+            .map_err(|e| JmapError::Database(e.to_string()))?;
 
             if let Some(mb) = mailbox {
-                if mb.role.is_some() {
+                if mb.0.is_some() {
                     not_destroyed.insert(
                         id_str.to_string(),
                         serde_json::json!({
@@ -908,7 +927,8 @@ async fn handle_mailbox_set(
                 }
 
                 // Delete the mailbox
-                sqlx::query!("DELETE FROM mailboxes WHERE id = $1", id)
+                sqlx::query("DELETE FROM mailboxes WHERE id = $1")
+                    .bind(id)
                     .execute(&state.db_pool)
                     .await
                     .map_err(|e| JmapError::Database(e.to_string()))?;

@@ -122,21 +122,21 @@ struct MessageMetadata {
 }
 
 async fn fetch_message_metadata(state: &AppState, message_id: Uuid) -> Result<MessageMetadata> {
-    let row = sqlx::query!(
+    let row = sqlx::query_as::<_, (chrono::DateTime<chrono::Utc>,)>(
         r#"
         SELECT received_at
         FROM messages
         WHERE id = $1
         LIMIT 1
-        "#,
-        message_id
+        "#
     )
+    .bind(message_id)
     .fetch_one(&state.db_pool)
     .await
     .context("Failed to fetch message metadata")?;
 
     Ok(MessageMetadata {
-        received_at: row.received_at,
+        received_at: row.0,
     })
 }
 

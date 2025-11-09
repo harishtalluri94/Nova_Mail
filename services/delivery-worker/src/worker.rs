@@ -134,15 +134,15 @@ async fn update_message_thread(
     message_id: Uuid,
     thread_id: Uuid,
 ) -> Result<()> {
-    sqlx::query!(
+    sqlx::query(
         r#"
         UPDATE messages
         SET thread_id = $1
         WHERE id = $2
-        "#,
-        thread_id,
-        message_id
+        "#
     )
+    .bind(thread_id)
+    .bind(message_id)
     .execute(&state.db_pool)
     .await?;
 
@@ -151,29 +151,29 @@ async fn update_message_thread(
 
 async fn apply_rules(state: &AppState, job: &DeliveryJob) -> Result<()> {
     // Fetch rules for this user
-    let rules = sqlx::query!(
+    let rules = sqlx::query_as::<_, (Uuid, serde_json::Value, serde_json::Value, i32)>(
         r#"
         SELECT id, conditions, actions, priority
         FROM rules
         WHERE user_id = $1 AND is_enabled = true
         ORDER BY priority ASC
-        "#,
-        job.user_id
+        "#
     )
+    .bind(job.user_id)
     .fetch_all(&state.db_pool)
     .await?;
 
     for rule in rules {
         // TODO: Evaluate rule conditions against message
         // TODO: Apply rule actions (move to mailbox, add labels, mark as read, etc.)
-        tracing::debug!("Rule {} evaluation not yet implemented", rule.id);
+        tracing::debug!("Rule {} evaluation not yet implemented", rule.0);
     }
 
     Ok(())
 }
 
 async fn update_mailbox_counts(state: &AppState, mailbox_id: Uuid) -> Result<()> {
-    sqlx::query!(
+    sqlx::query(
         r#"
         UPDATE mailboxes
         SET
@@ -181,9 +181,9 @@ async fn update_mailbox_counts(state: &AppState, mailbox_id: Uuid) -> Result<()>
             unread_messages = (SELECT COUNT(*) FROM messages WHERE mailbox_id = $1 AND is_deleted = false AND is_read = false),
             updated_at = NOW()
         WHERE id = $1
-        "#,
-        mailbox_id
+        "#
     )
+    .bind(mailbox_id)
     .execute(&state.db_pool)
     .await?;
 
@@ -194,14 +194,13 @@ async fn increment_modseq(state: &AppState, mailbox_id: Uuid) -> Result<i64> {
     // Increment modification sequence for JMAP state tracking
     // This uses the increment_mailbox_modseq function from the database migration
 
-    let new_modseq = sqlx::query_scalar!(
-        "SELECT increment_mailbox_modseq($1)",
-        mailbox_id
+    let new_modseq = sqlx::query_scalar::<_, i64>(
+        "SELECT increment_mailbox_modseq($1)"
     )
+    .bind(mailbox_id)
     .fetch_one(&state.db_pool)
     .await
-    .context("Failed to increment mailbox modseq")?
-    .unwrap_or(0);
+    .context("Failed to increment mailbox modseq")?;
 
     tracing::debug!(
         "Incremented modseq for mailbox {} to {}",
@@ -222,14 +221,14 @@ async fn track_message_state_change(
     // Track message state changes for JMAP delta queries
     // This uses the track_message_change function from the database migration
 
-    sqlx::query!(
-        "SELECT track_message_change($1, $2, $3, $4, $5)",
-        mailbox_id,
-        message_id,
-        change_type,
-        modseq,
-        None::<serde_json::Value> // changed_fields (null for creation)
+    sqlx::query(
+        "SELECT track_message_change($1, $2, $3, $4, $5)"
     )
+    .bind(mailbox_id)
+    .bind(message_id)
+    .bind(change_type)
+    .bind(modseq)
+    .bind(None::<serde_json::Value>) // changed_fields (null for creation)
     .execute(&state.db_pool)
     .await
     .context("Failed to track message state change")?;
