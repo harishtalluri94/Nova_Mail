@@ -243,22 +243,22 @@ async fn deliver_to_recipient(
     state: &AppState,
 ) -> Result<()> {
     // Get user info
-    let user = sqlx::query!(
+    let user = sqlx::query_as::<_, (Uuid, Uuid)>(
         r#"
         SELECT id, tenant_id FROM users WHERE email = $1 AND is_active = true
-        "#,
-        recipient
+        "#
     )
+    .bind(recipient)
     .fetch_one(&state.db_pool)
     .await?;
 
     // Get inbox mailbox
-    let mailbox = sqlx::query!(
+    let mailbox_id = sqlx::query_scalar::<_, Uuid>(
         r#"
         SELECT id FROM mailboxes WHERE user_id = $1 AND role = 'inbox'
-        "#,
-        user.id
+        "#
     )
+    .bind(user.0)
     .fetch_one(&state.db_pool)
     .await?;
 
@@ -271,32 +271,32 @@ async fn deliver_to_recipient(
     let size_bytes = session.data_buffer.len() as i64;
 
     // Insert message metadata
-    sqlx::query!(
+    sqlx::query(
         r#"
         INSERT INTO messages (
             id, tenant_id, user_id, mailbox_id, subject, from_addr,
             blob_id, size_bytes, received_at
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        "#,
-        message_id,
-        user.tenant_id,
-        user.id,
-        mailbox.id,
-        subject,
-        from_addr,
-        blob_id,
-        size_bytes,
-        received_at
+        "#
     )
+    .bind(message_id)
+    .bind(user.1)
+    .bind(user.0)
+    .bind(mailbox_id)
+    .bind(subject)
+    .bind(from_addr)
+    .bind(blob_id)
+    .bind(size_bytes)
+    .bind(received_at)
     .execute(&state.db_pool)
     .await?;
 
     // Enqueue indexing job
     let index_job = serde_json::json!({
         "message_id": message_id,
-        "tenant_id": user.tenant_id,
-        "user_id": user.id,
+        "tenant_id": user.1,
+        "user_id": user.0,
         "blob_id": blob_id
     });
 
@@ -308,9 +308,9 @@ async fn deliver_to_recipient(
     // Enqueue delivery job
     let delivery_job = serde_json::json!({
         "message_id": message_id,
-        "user_id": user.id,
-        "tenant_id": user.tenant_id,
-        "mailbox_id": mailbox.id,
+        "user_id": user.0,
+        "tenant_id": user.1,
+        "mailbox_id": mailbox_id,
         "blob_id": blob_id
     });
 
@@ -324,17 +324,17 @@ async fn deliver_to_recipient(
 }
 
 async fn verify_recipient(email: &str, state: &AppState) -> Result<Uuid> {
-    let user = sqlx::query!(
+    let user_id = sqlx::query_scalar::<_, Uuid>(
         r#"
         SELECT id FROM users WHERE email = $1 AND is_active = true
-        "#,
-        email
+        "#
     )
+    .bind(email)
     .fetch_one(&state.db_pool)
     .await
     .context("User not found")?;
 
-    Ok(user.id)
+    Ok(user_id)
 }
 
 fn extract_email_address(input: &str) -> Result<String> {
