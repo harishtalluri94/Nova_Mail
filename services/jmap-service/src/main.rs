@@ -7,9 +7,11 @@ use axum::{
     Router,
 };
 use nova_common::{
+    blob_storage::BlobStorage,
     config::{load_config, DatabaseConfig, ObservabilityConfig, RedisConfig, ServerConfig},
     db, health, logging, redis_client,
 };
+use std::sync::Arc;
 use state::AppState;
 use std::net::SocketAddr;
 use tower_http::{
@@ -40,9 +42,15 @@ async fn main() -> anyhow::Result<()> {
     let db_pool = db::create_pool(&db_config.url, db_config.max_connections).await?;
     let redis = redis_client::create_client(&redis_config.url).await?;
 
+    // Initialize blob storage
+    let s3_endpoint = std::env::var("S3_ENDPOINT").ok();
+    let s3_bucket = std::env::var("S3_BUCKET").unwrap_or_else(|_| "nova-mail-blobs".to_string());
+    let storage = Arc::new(BlobStorage::new(s3_endpoint, s3_bucket).await?);
+
     let state = AppState {
         db_pool: db_pool.clone(),
         redis,
+        storage,
     };
 
     // Build router
