@@ -1,4 +1,4 @@
-use crate::{quota, storage, AppState};
+use crate::{quota, AppState};
 use anyhow::{Context, Result};
 use nova_mime_tools::parse_message;
 use redis::AsyncCommands;
@@ -238,7 +238,7 @@ async fn process_message(session: &mut LmtpSession, state: &AppState) -> Result<
 async fn deliver_to_recipient(
     recipient: &str,
     blob_id: &str,
-    message: &mail_parser::Message,
+    message: &mail_parser::Message<'_>,
     session: &LmtpSession,
     state: &AppState,
 ) -> Result<()> {

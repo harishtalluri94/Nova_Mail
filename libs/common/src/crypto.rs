@@ -29,16 +29,15 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool> {
 
 /// Generate a random token of specified length
 pub fn generate_token(length: usize) -> Result<String> {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+
     let rng = SystemRandom::new();
     let mut token = vec![0u8; length];
 
     rng.fill(&mut token)
         .map_err(|e| Error::Internal(format!("Failed to generate token: {:?}", e)))?;
 
-    Ok(base64::encode_config(
-        token,
-        base64::URL_SAFE_NO_PAD,
-    ))
+    Ok(URL_SAFE_NO_PAD.encode(&token))
 }
 
 /// Compute SHA-256 hash
