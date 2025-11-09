@@ -13,7 +13,6 @@ members = [
     "services/antiabuse",
     "libs/common",
     "libs/mime-tools",
-    "libs/jmap-sdk-rs",
 ]
 
 [workspace.package]

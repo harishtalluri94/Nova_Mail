@@ -86,11 +86,8 @@ async fn process_batch(state: &AppState) -> Result<usize> {
 async fn process_job(state: &AppState, job: &IndexJob) -> Result<()> {
     tracing::debug!("Processing job for message {}", job.message_id);
 
-    // Fetch message blob from object storage
-    let blob_data = fetch_blob_from_storage(&job.blob_id).await?;
-
-    // Decompress if needed
-    let raw_email = decompress_blob(&blob_data)?;
+    // Fetch message blob from object storage (already decompressed and verified)
+    let raw_email = state.storage.retrieve_blob(&job.blob_id).await?;
 
     // Extract content
     let content = text_extractor::extract_content(&raw_email)?;
@@ -141,28 +138,6 @@ async fn fetch_message_metadata(state: &AppState, message_id: Uuid) -> Result<Me
     Ok(MessageMetadata {
         received_at: row.received_at,
     })
-}
-
-async fn fetch_blob_from_storage(blob_id: &str) -> Result<Vec<u8>> {
-    // TODO: Implement actual S3/R2 fetch
-    // For now, return placeholder
-    tracing::warn!("Blob storage fetch not implemented for {}", blob_id);
-    Ok(vec![])
-}
-
-fn decompress_blob(data: &[u8]) -> Result<Vec<u8>> {
-    if data.is_empty() {
-        return Ok(vec![]);
-    }
-
-    // Try to decompress with zstd
-    match zstd::decode_all(data) {
-        Ok(decompressed) => Ok(decompressed),
-        Err(_) => {
-            // Not compressed or different format, return as-is
-            Ok(data.to_vec())
-        }
-    }
 }
 
 /// Enqueue a message for indexing

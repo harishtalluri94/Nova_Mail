@@ -1,9 +1,9 @@
 mod lmtp_server;
 mod quota;
-mod storage;
 
 use axum::{routing::get, Router};
 use nova_common::{
+    blob_storage::BlobStorage,
     config::{load_config, DatabaseConfig, ObservabilityConfig, RedisConfig, ServerConfig},
     db, health, logging, redis_client,
 };
@@ -17,7 +17,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub struct AppState {
     pub db_pool: sqlx::PgPool,
     pub redis: redis::aio::ConnectionManager,
-    pub storage: Arc<storage::BlobStorage>,
+    pub storage: Arc<BlobStorage>,
 }
 
 #[tokio::main]
@@ -41,7 +41,16 @@ async fn main() -> anyhow::Result<()> {
     let redis = redis_client::create_client(&redis_config.url).await?;
 
     // Initialize blob storage
-    let storage = Arc::new(storage::BlobStorage::new().await?);
+    let s3_endpoint = std::env::var("S3_ENDPOINT").ok();
+    let s3_bucket = std::env::var("S3_BUCKET").unwrap_or_else(|_| "nova-mail-blobs".to_string());
+
+    tracing::info!(
+        "Initializing blob storage: endpoint={:?}, bucket={}",
+        s3_endpoint,
+        s3_bucket
+    );
+
+    let storage = Arc::new(BlobStorage::new(s3_endpoint, s3_bucket).await?);
 
     let state = AppState {
         db_pool: db_pool.clone(),

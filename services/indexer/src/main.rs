@@ -4,6 +4,7 @@ mod worker;
 
 use axum::{routing::get, Router};
 use nova_common::{
+    blob_storage::BlobStorage,
     config::{load_config, DatabaseConfig, ObservabilityConfig, RedisConfig, ServerConfig},
     db, health, logging, redis_client,
 };
@@ -18,6 +19,7 @@ pub struct AppState {
     pub db_pool: sqlx::PgPool,
     pub redis: redis::aio::ConnectionManager,
     pub index_manager: Arc<index_manager::IndexManager>,
+    pub storage: Arc<BlobStorage>,
 }
 
 #[tokio::main]
@@ -49,10 +51,23 @@ async fn main() -> anyhow::Result<()> {
     let index_path = std::env::var("INDEX_PATH").unwrap_or_else(|_| "./indices".to_string());
     let index_manager = Arc::new(index_manager::IndexManager::new(&index_path)?);
 
+    // Initialize blob storage
+    let s3_endpoint = std::env::var("S3_ENDPOINT").ok();
+    let s3_bucket = std::env::var("S3_BUCKET").unwrap_or_else(|_| "nova-mail-blobs".to_string());
+
+    tracing::info!(
+        "Initializing blob storage: endpoint={:?}, bucket={}",
+        s3_endpoint,
+        s3_bucket
+    );
+
+    let storage = Arc::new(BlobStorage::new(s3_endpoint, s3_bucket).await?);
+
     let state = AppState {
         db_pool: db_pool.clone(),
         redis: redis.clone(),
         index_manager: index_manager.clone(),
+        storage,
     };
 
     // Start background worker

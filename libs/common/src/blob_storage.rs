@@ -189,7 +189,7 @@ impl BlobStorage {
     }
 
     /// Compute BLAKE3 hash of data (content-addressed ID)
-    fn compute_hash(data: &[u8]) -> String {
+    pub fn compute_hash(data: &[u8]) -> String {
         let mut hasher = Hasher::new();
         hasher.update(data);
         hex::encode(hasher.finalize().as_bytes())
